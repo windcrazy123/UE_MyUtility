@@ -1,3 +1,5 @@
+.idea/
+
 # Visual Studio 2015 user specific files
 .vs/
 
@@ -48,6 +50,8 @@ SourceArt/**/*.tga
 # Binary Files
 Binaries/*
 Plugins/**/Binaries/*
+备份Plugins/**/Binaries/*
+备份Plugins/**/Intermediate/*
 
 # Builds
 Build/*
