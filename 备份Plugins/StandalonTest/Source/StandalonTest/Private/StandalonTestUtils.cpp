@@ -5,16 +5,20 @@
 #include "ContentBrowserModule.h"
 #include "DesktopPlatformModule.h"
 //#include "IContentBrowserSingleton.h"
+#include "AssetDeleteModel.h"
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
 #include "IImageWrapperModule.h"
 #include "IImageWrapper.h"
 #include "ImageCore.h"
 #include "ImageUtils.h"
+#include "SSelectAssetClassWindow.h"
 #include "STextureOptionWindow.h"
 #include "TextureImportUI.h"
 #include "AssetRegistry/AssetRegistryModule.h"
-#include "Factories/TextureFactory.h"
+// #include "Editor/EditorWidgets/Public/Filters/SAssetFilterBar.h"
+// #include "Factories/TextureFactory.h"
+// #include "Filters/SBasicFilterBar.h"
 //#include "Factories/TextureFactory.h"
 
 DEFINE_LOG_CATEGORY(StandalonTest);
@@ -57,7 +61,7 @@ void StandalonTestUtils::ExecuteImportImage(const FString& CachedSavePath)
         		ImportUI->LoadConfig();
     
         		TSharedRef<SWindow> SettingWindow = SNew(SWindow)
-        			.Title(NSLOCTEXT("TextureImportUI", "SettingsTitle", "Texture Import Settings"))
+        			.Title(NSLOCTEXT("StandaloneTestUtils", "SettingsTitle", "Texture Import Settings"))
         			.ClientSize(FVector2D(600, 400));
     
         		/*FPropertyEditorModule& PropertyEditorModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
@@ -381,13 +385,56 @@ bool StandalonTestUtils::IsPathValid(const FString& CachedSavePath)
 void StandalonTestUtils::ReplaceReferences()
 {
 	if(EAppReturnType::Ok != FMessageDialog::Open(EAppMsgType::Type::OkCancel, FText::FromString("Are you sure you want to use one asset to consolidate the same name assets to?\nThis operation is irreversible and it is recommended to back up the project before running it.")))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("User canceled the operation."));
 		return;
+	}
 
+	//  选项窗口
+	TSharedRef<SWindow> OptionWindow = SNew(SWindow)
+        .Title(NSLOCTEXT("StandaloneTestUtils", "OptionTitle", "Select Replace Reference Class"))
+        .ClientSize(FVector2D(400, 500));
+	
+
+    TSharedPtr<SSelectAssetClassWindow> SelectAssetClassWindow;
+    OptionWindow->SetContent(
+	        SAssignNew(SelectAssetClassWindow, SSelectAssetClassWindow)
+                    .ParentWindow(OptionWindow)
+    );
+    
+    FSlateApplication::Get().AddModalWindow(OptionWindow, FGlobalTabmanager::Get()->GetRootWindow());
+
+	// 获取用户选择的类名
+	const TArray<FString> SelectedClassNames = SelectAssetClassWindow->GetSelectedClasses();
+	if (SelectedClassNames.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("No classes selected. Aborting."));
+		return;
+	}
+	
+	// 将类名转换为 FTopLevelAssetPath
+	TArray<FTopLevelAssetPath> ClassPaths;
+	for (const FString& ClassName : SelectedClassNames)
+	{		
+		UClass* Class = FindObject<UClass>(nullptr, *UTexture2D::StaticClass()->GetClassPathName().ToString());
+		UE_LOG(LogTemp, Log, TEXT("ClassName: %s"), *ClassName)
+		if (Class)
+		{
+			ClassPaths.Add(FTopLevelAssetPath(Class));
+		}
+	}
+	UE_LOG(LogTemp, Log, TEXT("Selected Classes Num:%d:"), ClassPaths.Num())
+	for(auto ClassPath : ClassPaths)
+	{
+		UE_LOG(LogTemp, Log, TEXT("Selected ClassPath: %s"), *ClassPath.ToString())
+	}
+	
 	// 1. 获取所有资产并按名称分组
 	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
 	TArray<FAssetData> AllAssets;
 	FARFilter Filter;
-	Filter.ClassPaths.Add(UTexture2D::StaticClass()->GetClassPathName());
+	//Filter.ClassPaths.Add(UTexture2D::StaticClass()->GetClassPathName());
+	Filter.ClassPaths = ClassPaths;
 	Filter.PackagePaths.Add(TEXT("/Game/"));
 	Filter.bRecursivePaths = true;
 	AssetRegistryModule.Get().GetAssets(Filter, AllAssets);
@@ -397,6 +444,7 @@ void StandalonTestUtils::ReplaceReferences()
 	for (const FAssetData& Asset : AllAssets)
 	{
 		NameToAssetsMap.FindOrAdd(Asset.AssetName).Add(Asset);
+		//UE_LOG(LogTemp, Log, TEXT("AssetName: %s"), *FPaths::GetExtension(Asset.AssetClassPath.ToString(), false));
 	}
 
 	// 2. 过滤出有重复名称的组
@@ -410,37 +458,85 @@ void StandalonTestUtils::ReplaceReferences()
 	}
 
 	// 4. 替换引用为每个组的第一个资产
-	IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
+	//IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
+	/*TArray<FAssetIdentifier> Referencers;
+	AssetRegistryModule.Get().GetReferencers(OldAsset.PackageName, Referencers);
+	// 2. 替换引用
+	for (const FAssetIdentifier& Ref : Referencers)
+	{
+		UObject* ReferencerObject = Ref.GetAsset();
+		if (ReferencerObject)
+		{
+			// 替换逻辑（需遍历属性）
+			ReplaceAssetReferences(ReferencerObject, OldAsset, PrimaryAsset);
+		}
+	}void ReplaceAssetReferences(UObject* Asset, const FAssetData& OldAsset, const FAssetData& NewAsset)
+	{
+		if (!Asset) return;
+
+		// 递归遍历对象的所有属性
+		ForEachObjectWithOuter(Asset, [&](UObject* SubObj)
+		{
+			for (TFieldIterator<FProperty> PropIt(SubObj->GetClass()); PropIt; ++PropIt)
+			{
+				FProperty* Property = *PropIt;
+            
+				// 处理软引用（如 TSoftObjectPtr）
+				if (FSoftObjectProperty* SoftProp = CastField<FSoftObjectProperty>(Property))
+				{
+					FSoftObjectPtr* SoftPtr = SoftProp->GetPropertyValuePtr_InContainer(SubObj);
+					if (SoftPtr->ToSoftObjectPath() == OldAsset.ToSoftObjectPath())
+					{
+						SoftPtr->SetPath(NewAsset.ToSoftObjectPath());
+						SubObj->MarkPackageDirty();
+					}
+				}
+            
+				// 处理硬引用（如直接 UObject*）
+				else if (FObjectProperty* ObjProp = CastField<FObjectProperty>(Property))
+				{
+					UObject** ObjPtr = ObjProp->GetPropertyValuePtr_InContainer(SubObj);
+					if (*ObjPtr == OldAsset.GetAsset())
+					{
+						*ObjPtr = NewAsset.GetAsset();
+						SubObj->MarkPackageDirty();
+					}
+				}
+			}
+		}, true); // 递归遍历子对象（如材质中的纹理节点）
+	}*/
 	for (TArray<FAssetData>& Group : DuplicateGroups)
 	{
 		if (Group.Num() < 2) continue;
 
-		
+		const FAssetData& PrimaryAsset = Group[0];
+		TArray<UObject*> PendingDeletes;
 		for (int32 i = 1; i < Group.Num(); ++i)
 		{
-			const FAssetData& PrimaryAsset = Group[0];
-			
-			const FAssetData& DuplicateAsset = Group[i];
-			auto Object = DuplicateAsset.GetAsset();
-			FString NewPackagePath = PrimaryAsset.PackagePath.ToString();
-			FString NewName = PrimaryAsset.AssetName.ToString();
-            
-			// 构建重命名参数
-			FAssetRenameData RenameData(
-				Object,
-				NewPackagePath,
-				NewName
-			);
-
-			
-			TArray<FAssetRenameData> RenameDataList;
-			RenameDataList.Add(RenameData);
-			// 执行重命名（自动生成重定向器）
-			AssetTools.RenameAssets(RenameDataList);
+			PendingDeletes.AddUnique(Group[i].GetAsset());
 		}
 		
+		TSharedRef<FAssetDeleteModel> DeleteModel = MakeShared<FAssetDeleteModel>(PendingDeletes);
+
+		int TickNum = 60;
+		while (DeleteModel->GetState() != FAssetDeleteModel::Finished && TickNum>0)
+		{
+			DeleteModel->Tick(0);
+			TickNum--;
+		}
+		if(DeleteModel->GetState() != FAssetDeleteModel::Finished)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to check references"))
+			return;
+		}
+
+		// @TODO: 放置源代码，修改使其只提醒一次保存，其余直接自动修改并使用用户第一次的设置
+		if(!DeleteModel->DoReplaceReferences(PrimaryAsset))
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to replace references"))
+			return;
+		}
 	}
 }
-
 
 

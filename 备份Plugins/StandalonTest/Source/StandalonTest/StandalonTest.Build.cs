@@ -7,6 +7,7 @@ public class StandalonTest : ModuleRules
 	public StandalonTest(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
+		//bUsePrecompiled = true;
 		
 		PublicIncludePaths.AddRange(
 			new string[] {
@@ -42,7 +43,7 @@ public class StandalonTest : ModuleRules
 				"CoreUObject",
 				"Engine",
 				"Slate",
-				"SlateCore", "WorkspaceMenuStructure","ImageCore","ImageWrapper","ToolWidgets"
+				"SlateCore", "WorkspaceMenuStructure","ImageCore","ImageWrapper","ToolWidgets", "AssetDefinition", "EditorWidgets"
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);

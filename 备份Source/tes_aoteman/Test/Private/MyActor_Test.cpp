@@ -15,7 +15,6 @@ AMyActor_Test::AMyActor_Test()
 void AMyActor_Test::BeginPlay()
 {
 	Super::BeginPlay();
-	
 }
 
 // Called every frame

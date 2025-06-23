@@ -5,11 +5,14 @@
 
 #include "AssetToolsModule.h"
 //#include "IAssetTools.h"
+#include "AssetDeleteModel.h"
 #include "EditorAssetLibrary.h"
 #include "EditorDirectories.h"
 #include "IImageWrapperModule.h"
 #include "ImageUtils.h"
 #include "AssetSelection.h"
+#include "ObjectTools.h"
+#include "PackageTools.h"
 #include "TextureAssetActions.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Factories/TextureFactory.h"
@@ -59,13 +62,36 @@ void UBFL_Utility::ResizeTest(const TArray<UTexture*>& InTextures, int32 InMaxSi
 
 void UBFL_Utility::ReplaceRefTest(UTexture2D* Texture, UTexture2D* OtherTexture)
 {
-	IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
-	FString NewPackagePath = OtherTexture->GetPackage()->GetName();//.Replace(*OtherTexture->GetName(), TEXT(""));
-	FString NewName = OtherTexture->GetName();
-	FAssetRenameData ReplaceData(Texture, NewPackagePath, NewName);
-	TArray<FAssetRenameData> AssetsToRename;
-	AssetsToRename.Add(ReplaceData);
-	AssetTools.RenameAssets(AssetsToRename);
+	TArray<UObject*> ObjectsToConsolidate{OtherTexture};
+	{
+		// Get list of outermost packages.
+		TArray<UPackage*> TopLevelPackages;
+		for( int32 ObjectIndex=0; ObjectIndex<ObjectsToConsolidate.Num(); ObjectIndex++ )
+		{
+			UObject* Object = ObjectsToConsolidate[ObjectIndex];
+			if( Object )
+			{
+				TopLevelPackages.AddUnique( Object->GetOutermost() );
+			}
+		}
+
+		if(!UPackageTools::HandleFullyLoadingPackages(TopLevelPackages, NSLOCTEXT("BFLUtility", "ReplaceRefTest", "Replace Reference"))){
+			UE_LOG(BFLUtilityLog, Error, TEXT("Failed to load packages"));
+			return;
+		}
+	}
+	TSharedRef<FAssetDeleteModel> DeleteModel = MakeShared<FAssetDeleteModel>(ObjectsToConsolidate);
+
+	int TickNum = 60;
+	while (DeleteModel->GetState() != FAssetDeleteModel::Finished && TickNum>0)
+	{
+		UE_LOG(BFLUtilityLog, Warning, TEXT("TickNum%d"),TickNum);
+        				DeleteModel->Tick(0);
+        			TickNum--;
+	}
+	UE_LOG(BFLUtilityLog, Warning, TEXT("Finished"));
+	bool bSuccess = DeleteModel->DoReplaceReferences(Texture);
+	UE_LOG(BFLUtilityLog, Warning, TEXT("re%d,state%d"),bSuccess,DeleteModel->GetState());
 	
 }
 
